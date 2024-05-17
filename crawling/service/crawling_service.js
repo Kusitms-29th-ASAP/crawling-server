@@ -19,15 +19,20 @@ const image_size = {
   height: 1748,
 };
 
+const browser_option = {
+  // headless: false,
+  headless: true,
+  args: ["--no-sandbox", "--disable-setuid-sandbox"],
+//   executablePath: "/usr/bin/google-chrome-stable",
+  timeout: 600000,
+  setViewport: {
+    image_size,
+  },
+};
+
 exports.crawling = async function (start_idx, batch_size, element_school_url) {
-  const browser = await puppeteer.launch({
-    // headless: false,
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    // executablePath: '/usr/bin/google-chrome-stable',
-  });
+  const browser = await puppeteer.launch(browser_option);
   const page = await browser.newPage();
-  await config_viewport(page);
 
   await page.goto(element_school_url);
 
@@ -36,52 +41,71 @@ exports.crawling = async function (start_idx, batch_size, element_school_url) {
     "table.board_type01_tb_list tbody tr"
   );
 
-  const data = [];
-
-  for (let idx = 0; idx < page_idx_length; idx++) {
-    await page.goto(element_school_url);
-
-    const row = await page.evaluate((idx) => {
-      const tr = document.querySelectorAll(
-        "table.board_type01_tb_list tbody tr"
-      )[idx];
-
-      const target_idx = tr
-        .querySelectorAll("td")[0]
-        .textContent.match(/\d+/)[0];
-
-      const td = tr.querySelectorAll("td")[1];
-      target_link = td.querySelectorAll("a")[0];
-      target_link.click();
-
-      return target_idx;
-    }, idx);
-
-    try {
-      await page.waitForFunction(() => {
-        const elements = document.querySelectorAll(
-          "table.board_type01_intable tbody tr"
-        ).length;
-        return elements > 0;
-      });
-    } catch (e) {
-      continue;
-    }
-
-    const image_file_details = await get_image_file(browser, page);
-
-    data.push({
-      idx: row,
-      file_info: image_file_details,
-    });
+  const data = []
+  const chunkSize = 4;
+  for (let i = 0; i < page_idx_length; i += chunkSize) {
+    const chunk = Array.from(
+      { length: Math.min(chunkSize, page_idx_length - i) },
+      (_, idx) => process_page(element_school_url, i + idx)
+    );
+    let chunkData = await Promise.all(chunk);
+    chunkData = chunkData.filter(item => item.file_info.length > 0);
+    data.push(...chunkData);
+    // Do something with chunkData...
   }
 
   await browser.close();
 
-  console.log(data);
-
   return { data: data };
 };
+
+async function process_page(element_school_url, idx) {
+  const browser = await puppeteer.launch(browser_option);
+  const page = await browser.newPage();
+  await page.goto(element_school_url);
+
+  const row = await page.evaluate((idx) => {
+    const tr = document.querySelectorAll("table.board_type01_tb_list tbody tr")[
+      idx
+    ];
+    if(!tr) return null;
+
+    const target_idx = tr.querySelectorAll("td")[0].textContent.match(/\d+/)[0];
+
+    const td = tr.querySelectorAll("td")[1];
+    target_link = td.querySelectorAll("a")[0];
+    target_link.click();
+
+    return target_idx;
+  }, idx);
+
+  if(!row) 
+    return {
+      idx: idx,
+      file_info: []
+    }
+
+  try {
+    await page.waitForFunction(() => {
+      const elements = document.querySelectorAll(
+        "table.board_type01_intable tbody tr"
+      ).length;
+      return elements > 0;
+    });
+  } catch (e) {
+    return {
+      idx: row,
+      file_info: [],
+    };
+  }
+
+  const image_file_details = await get_image_file(browser, page);
+
+  return {
+    idx: row,
+    file_info: image_file_details,
+  };
+}
 
 async function get_image_file(browser, page) {
   const inner_data_array = [];
@@ -92,6 +116,10 @@ async function get_image_file(browser, page) {
   );
 
   for (let inner_idx = 0; inner_idx < page_file_length; inner_idx++) {
+    const new_page_promise = new Promise((resolve) =>
+      browser.once("targetcreated", (target) => resolve(target.page()))
+    );
+
     const title = await page.evaluate((inner_idx) => {
       let tr = document.querySelectorAll("table.board_type01_intable tbody tr")[
         inner_idx
@@ -99,29 +127,21 @@ async function get_image_file(browser, page) {
       let tds = tr.querySelectorAll("td");
 
       const target_link = tds[4].querySelectorAll("a")[1];
-
       target_link.click();
 
       return tds[1].textContent;
     }, inner_idx);
 
-    await page.waitForTimeout(1000);
-
-    const pages = await browser.pages();
-
-    const image_page = pages[pages.length - 1];
-
-    await image_page.waitForTimeout(1000);
+    const image_page = await new_page_promise;
+    await image_page.waitForTimeout(3000);
+    image_page.setViewport(image_size);
 
     const pdf_path = `${download_path}/${randomUUID()}.pdf`;
-    await config_viewport(image_page);
 
     await image_page.pdf({
       path: pdf_path,
       format: "A4",
     });
-
-    console.log("pdf_path: ", pdf_path);
 
     const image_file_paths = await converter.convert(
       pdf_path,
@@ -140,7 +160,7 @@ async function get_image_file(browser, page) {
     });
 
     // delete pdf file
-    await fs.unlinkSync(pdf_path);
+    fs.unlinkSync(pdf_path);
 
     await image_page.close();
 
@@ -150,8 +170,4 @@ async function get_image_file(browser, page) {
     });
   }
   return inner_data_array;
-}
-
-async function config_viewport(page) {
-  await page.setViewport(image_size);
 }

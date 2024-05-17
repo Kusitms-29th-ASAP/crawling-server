@@ -1,12 +1,10 @@
 const AWS = require('aws-sdk');
-const { randomUUID } = require('crypto');
 const fs = require('fs');
+require("dotenv").config();
 const endpoint = new AWS.Endpoint('https://kr.object.ncloudstorage.com');
 const region = 'kr-standard';
-const access_key = 'B954A007851205CA6877';
-const secret_key = '9B330412FD90773B8816A64D4CA4EEAF3BFA48A0';
-
-const  {uuidv7} = require("uuidv7");
+const access_key = process.env.NCP_ACCESS_KEY;
+const secret_key = process.env.NCP_SECRET_KEY;
 
 
 const S3 = new AWS.S3({
@@ -23,7 +21,7 @@ const bucket_name = 'school-point/image';
 
 
 exports.upload_file = async function(local_file_path, file_name) {
-    const object_name = uuidv7() + file_name;
+    const object_name = file_name;
 
     // upload file
     await S3.putObject({

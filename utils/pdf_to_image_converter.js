@@ -1,6 +1,7 @@
 const {fromPath} = require('pdf2pic');
 const fs = require('fs');
 const pdf = require('pdf-parse');
+const { uuidv7 } = require('uuidv7');
 
 
 exports.convert = async function(pdf_path,file_name, image_size) {
@@ -10,19 +11,21 @@ exports.convert = async function(pdf_path,file_name, image_size) {
 
     const dataBuffer = fs.readFileSync(pdf_path);
     const pdf_page_number = await pdf(dataBuffer).then(function(data) {
-        console.log(data.numpages);
         return data.numpages
     });
 
+    console.log(`pdf page number : ${pdf_page_number}`);
+
     const convert = fromPath(pdf_path, {
-        quality: 100,
-        density: image_size.width,   
-        saveFilename: file_name,
+        density: image_size.width,
+        saveFilename: uuidv7(),
         savePath: "./file",
         format: "png",
         width: image_size.width,
         height: image_size.height,
     })
+
+    console.log(`pdf to image conversion is done`);
 
     const image_paths = [];
     for (let i = 1; i <= pdf_page_number; i++) {
