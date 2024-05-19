@@ -5,6 +5,7 @@ const fs = require("fs");
 const converter = require("../../utils/pdf_to_image_converter");
 const upload_image = require("../../utils/upload_image");
 const { randomUUID } = require("crypto");
+const { start } = require("repl");
 
 const download_path = "./file";
 
@@ -23,7 +24,7 @@ const browser_option = {
   // headless: false,
   headless: true,
   args: ["--no-sandbox", "--disable-setuid-sandbox"],
-//   executablePath: "/usr/bin/google-chrome-stable",
+  executablePath: "/usr/bin/google-chrome-stable",
   timeout: 600000,
   setViewport: {
     image_size,
@@ -41,17 +42,16 @@ exports.crawling = async function (start_idx, batch_size, element_school_url) {
     "table.board_type01_tb_list tbody tr"
   );
 
-  const data = []
-  const chunkSize = 4;
+  const data = [];
+  const chunkSize = 5;
   for (let i = 0; i < page_idx_length; i += chunkSize) {
     const chunk = Array.from(
       { length: Math.min(chunkSize, page_idx_length - i) },
-      (_, idx) => process_page(element_school_url, i + idx)
+      (_, idx) => process_page(element_school_url, i + idx, start_idx)
     );
     let chunkData = await Promise.all(chunk);
     chunkData = chunkData.filter(item => item.file_info.length > 0);
     data.push(...chunkData);
-    // Do something with chunkData...
   }
 
   await browser.close();
@@ -59,7 +59,7 @@ exports.crawling = async function (start_idx, batch_size, element_school_url) {
   return { data: data };
 };
 
-async function process_page(element_school_url, idx) {
+async function process_page(element_school_url, idx, start_idx) {
   const browser = await puppeteer.launch(browser_option);
   const page = await browser.newPage();
   await page.goto(element_school_url);
@@ -79,11 +79,16 @@ async function process_page(element_school_url, idx) {
     return target_idx;
   }, idx);
 
-  if(!row) 
+  const row_int = parseInt(row);
+  const start_idx_int = parseInt(start_idx);
+
+  if(row_int <= start_idx_int || !row){
+    await browser.close();
     return {
       idx: idx,
       file_info: []
     }
+  }
 
   try {
     await page.waitForFunction(() => {
